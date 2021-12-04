@@ -1,4 +1,5 @@
-CUDA_VISIBLE_DEVICES=0 python test.py \
+CUDA_VISIBLE_DEVICES=3 python3 test.py \
 --vision-backbone densenet121 \
 --textual-embeddings embeddings/nih_chest_xray_biobert.npy \
---load-from checkpoints/best_auroc_checkpoint.pth.tar
+--load-from working_copies/checkpoints-t,t--pre-new/9/best_auroc_checkpoint.pth.tar \
+--vae-load-from working_copies/checkpoints-t,t--pre-new/9/best_auroc_vae-backprop.pth.tar

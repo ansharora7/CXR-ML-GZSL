@@ -1,6 +1,8 @@
 import numpy as np
 import time
 from datetime import datetime, timedelta
+
+from numpy.lib.function_base import average
 from tqdm import tqdm
 
 import torch
@@ -42,6 +44,7 @@ class ChexnetTrainer(object):
                                     #  lr=self.args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-5)
         
         # self.optimizer  = optim.SGD(list(self.model.parameters()) + list(self.vae.parameters()), lr=3e-3, momentum=0.9, weight_decay=0.0001)
+        # self.optimizer  = optim.SGD(self.model.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=0.0001)
         # self.scheduler = self.step_lr
         self.scheduler = ReduceLROnPlateau(self.optimizer, factor=0.1, patience=5, mode='min')
         
@@ -55,7 +58,7 @@ class ChexnetTrainer(object):
         self.best_epoch = 1
         
         self.val_losses = []
-        # print(self.model)
+        print(self.model)
         print(self.optimizer)
         print(self.scheduler)
         print(self.loss)
@@ -108,7 +111,7 @@ class ChexnetTrainer(object):
 
     def save_checkpoint(self, prefix='best'):
         path_zsl = f'{self.args.save_dir}/{prefix}_checkpoint.pth.tar'
-        path_vae = f'{self.args.save_dir}/{prefix}_vae-backprop.pth.tar'
+        path_vae = f'{prefix}_vae-backprop.pth.tar'
 
         torch.save(
             {
@@ -155,19 +158,30 @@ class ChexnetTrainer(object):
         datasetTest = NIHChestXray(self.args, self.args.test_file, transform=transforms.Compose(test_transforms), classes_to_load='all')
         self.test_dl = DataLoader(dataset=datasetTest, batch_size=self.args.batch_size*3, num_workers=8, shuffle=False, pin_memory=True)
         
+        ###ADDED###
+        self.train_imdb = datasetTrain.dict_num_images
+        self.val_imdb = datasetVal.dict_num_images
+        self.test_imdb = datasetTest.dict_num_images
+        # print(self.train_dl.dataset.class_ids_loaded)
+        # print(self.val_imdb)
+        # print(self.test_imdb)
+        ###ADDED###
         print(datasetTest.CLASSES)
         
 
     def train (self):
         print(self.args.epochs)
-        print(self.args.beta_con)
-        print(self.args.beta_map)
         for self.epoch in range (self.start_epoch, self.args.epochs):
 
             self.epochTrain()
-            lossVal, val_ind_auroc = self.epochVal()
+            lossVal, val_ind_auroc, val_ind_auroc_weighted, recallIndividual, precisionIndividual, F1Individual = self.epochVal()
             val_ind_auroc = np.array(val_ind_auroc)
-        
+            val_ind_auroc_weighted = np.array(val_ind_auroc_weighted)
+            recallIndividual = np.array(recallIndividual)
+            precisionIndividual = np.array(precisionIndividual)
+            F1Individual = np.array(F1Individual)
+
+
             aurocMean = val_ind_auroc.mean()
             self.save_checkpoint(prefix=f'last_epoch')  
             self.should_test = False
@@ -183,20 +197,36 @@ class ChexnetTrainer(object):
                 self.save_checkpoint(prefix='min_loss')
                 self.should_test = True
 
-            self.print_auroc_new(val_ind_auroc,self.val_dl.dataset.class_ids_loaded, prefix='val',ver='val')
+            self.print_auroc_new(val_ind_auroc, val_ind_auroc_weighted, recallIndividual, precisionIndividual, F1Individual,self.val_dl.dataset.class_ids_loaded, prefix='val',ver='val')
             if self.should_test is True:
-                test_ind_auroc = self.test()
+                test_ind_auroc, test_ind_auroc_weighted, test_recallIndividual, test_precisionIndividual, test_F1Individual = self.test()
                 test_ind_auroc = np.array(test_ind_auroc)
-            
-                self.write_results(val_ind_auroc,self.val_dl.dataset.class_ids_loaded, prefix=f'\n\nepoch {self.epoch}\nval', mode='a', ver='val')
+                test_ind_auroc_weighted = np.array(test_ind_auroc_weighted)
+                test_recallIndividual = np.array(test_recallIndividual)
+                test_precisionIndividual = np.array(test_precisionIndividual)
+                test_F1Individual = np.array(test_F1Individual)
+               
+                self.write_results(val_ind_auroc, val_ind_auroc_weighted, recallIndividual, precisionIndividual, F1Individual, 
+                                    self.val_dl.dataset.class_ids_loaded, prefix=f'\n\nepoch {self.epoch}\nval', mode='a', ver='val')
 
-                self.write_results(test_ind_auroc[self.test_dl.dataset.seen_class_ids], self.test_dl.dataset.seen_class_ids, prefix='\ntest_seen', mode='a',ver='test')
                 
-                self.write_results(test_ind_auroc[self.test_dl.dataset.unseen_class_ids], self.test_dl.dataset.unseen_class_ids, prefix='\ntest_unseen', mode='a',ver='test')
+                self.write_results(test_ind_auroc[self.test_dl.dataset.seen_class_ids], test_ind_auroc_weighted[self.test_dl.dataset.seen_class_ids], 
+                                    test_recallIndividual[self.test_dl.dataset.seen_class_ids], test_precisionIndividual[self.test_dl.dataset.seen_class_ids], 
+                                    test_F1Individual[self.test_dl.dataset.seen_class_ids], self.test_dl.dataset.seen_class_ids, prefix='\ntest_seen', mode='a',ver='test')
+                
+                
+                self.write_results(test_ind_auroc[self.test_dl.dataset.unseen_class_ids], test_ind_auroc_weighted[self.test_dl.dataset.unseen_class_ids], 
+                                    test_recallIndividual[self.test_dl.dataset.unseen_class_ids], test_precisionIndividual[self.test_dl.dataset.unseen_class_ids], 
+                                    test_F1Individual[self.test_dl.dataset.unseen_class_ids], self.test_dl.dataset.unseen_class_ids, prefix='\ntest_unseen', mode='a',ver='test')
 
-                self.print_auroc_new(test_ind_auroc[self.test_dl.dataset.seen_class_ids], self.test_dl.dataset.seen_class_ids, prefix='\ntest_seen',ver='test')
+                self.print_auroc_new(test_ind_auroc[self.test_dl.dataset.seen_class_ids],test_ind_auroc_weighted[self.test_dl.dataset.seen_class_ids], 
+                                    test_recallIndividual[self.test_dl.dataset.seen_class_ids], test_precisionIndividual[self.test_dl.dataset.seen_class_ids], 
+                                    test_F1Individual[self.test_dl.dataset.seen_class_ids], self.test_dl.dataset.seen_class_ids, prefix='\ntest_seen',ver='test')
                 
-                self.print_auroc_new(test_ind_auroc[self.test_dl.dataset.unseen_class_ids],self.test_dl.dataset.unseen_class_ids, prefix='\ntest_unseen', ver='test')
+                
+                self.print_auroc_new(test_ind_auroc[self.test_dl.dataset.unseen_class_ids], test_ind_auroc_weighted[self.test_dl.dataset.unseen_class_ids], 
+                                    test_recallIndividual[self.test_dl.dataset.unseen_class_ids], test_precisionIndividual[self.test_dl.dataset.unseen_class_ids], 
+                                    test_F1Individual[self.test_dl.dataset.unseen_class_ids],self.test_dl.dataset.unseen_class_ids, prefix='\ntest_unseen', ver='test')
 
             plot_array(self.val_losses, f'{self.args.save_dir}/val_loss')
             print(f'best epoch {self.best_epoch} best auroc {self.max_auroc_mean} loss {lossVal:.6f} auroc at min loss {self.auroc_min_loss:0.4f}')
@@ -274,11 +304,13 @@ class ChexnetTrainer(object):
                 del varOutput, varTarget, varInput, target, inputs
         lossVal = lossVal / len(self.val_dl)
         
-        aurocIndividual = self.computeAUROC(outGT, outPRED, self.val_dl.dataset.class_ids_loaded)
+        aurocIndividual, aurocIndividual_weighted = self.computeAUROC(outGT, outPRED, self.val_dl.dataset.class_ids_loaded)
+        recallIndividual, precisionIndividual, F1Individual = self.computeMetrics(outGT, outPRED, 
+                                                                        self.val_dl.dataset.class_ids_loaded) 
         
         self.val_losses.append(lossVal)
 
-        return lossVal, aurocIndividual
+        return lossVal, aurocIndividual, aurocIndividual_weighted, recallIndividual, precisionIndividual, F1Individual
     
     
    
@@ -301,30 +333,37 @@ class ChexnetTrainer(object):
                 varInput = torch.autograd.Variable(inputs.view(-1, c, h, w).to(self.device))
                 
                 out, _ = self.model(varInput, n_crops=n_crops, bs=bs)
+                # print(out)
+                # print("OUT!!!!!!!!!!!!!!!!!!!!")
                 
                 outPRED = torch.cat((outPRED, out.data), 0)
                 
 
 
-        aurocIndividual = self.computeAUROC(outGT, outPRED, self.test_dl.dataset.class_ids_loaded)
+        aurocIndividual, aurocIndividual_weighted = self.computeAUROC(outGT, outPRED, self.test_dl.dataset.class_ids_loaded)
+        recallIndividual, precisionIndividual, F1Individual = self.computeMetrics(outGT, outPRED, 
+                                                                        self.test_dl.dataset.class_ids_loaded) 
         
         aurocMean = np.array(aurocIndividual).mean()
         
-        return aurocIndividual
+        return aurocIndividual,aurocIndividual_weighted, recallIndividual, precisionIndividual, F1Individual
     
     
     def computeAUROC (self, dataGT, dataPRED, class_ids):
         outAUROC = []
+        outAUROC_weighted = []
         datanpGT = dataGT.cpu().numpy()
         datanpPRED = dataPRED.cpu().numpy()
 
         for i in class_ids:
             outAUROC.append(roc_auc_score(datanpGT[:, i], datanpPRED[:, i]))
             # print("HI HI HI")
-            # print(dataGT[:, i])
-            # print(dataPRED[:, i])
+            # print(datanpGT[:, i])
+            # print(np.round(datanpPRED[:,i]))
+            # print(datanpPRED[:,i])
             # print('--------------')
-        return outAUROC
+            outAUROC_weighted.append(roc_auc_score(datanpGT[:, i], datanpPRED[:, i],average='weighted'))
+        return outAUROC, outAUROC_weighted
 
 
     def computeMetrics (self, dataGT, dataPRED, class_ids):
@@ -333,26 +372,65 @@ class ChexnetTrainer(object):
         outF1 = []
         datanpGT = dataGT.cpu().numpy()
         datanpPRED = dataPRED.cpu().numpy()
-
+        print(datanpPRED[0,:])
+        print("YAYAYAYAYA")
         for i in class_ids:
-            outRecall.append(recall_score(datanpGT[:, i], np.round(datanpPRED[:, i]), average='weighted'))
-            outPrecision.append(precision_score(datanpGT[:, i], np.round(datanpPRED[:, i]),average='weighted'))
-            outF1.append(f1_score(datanpGT[:, i], np.round(datanpPRED[:, i]),average='weighted'))
+            x = np.round(datanpPRED[:,i])
+            x[x==0.]=0.
+            # print(datanpGT[:,i].size)
+            # print(datanpPRED[:,i].size)
+            # print(datanpPRED[])
+            # print(x)
+            outRecall.append(recall_score(datanpGT[:, i], x))
+            outPrecision.append(precision_score(datanpGT[:, i],x))
+            outF1.append(f1_score(datanpGT[:, i], x))
         
         return outRecall, outPrecision, outF1
 
 
-    def write_results(self, aurocIndividual, class_ids, prefix='val', mode='a',ver='val'):
+    def write_results(self, aurocIndividual, aurocIndividual_weighted, recallIndividual, precisionIndividual, F1Individual, class_ids, prefix='val', mode='a',ver='val'):
 
-        with open(f"{self.args.save_dir}/results.txt", mode) as results_file:
-        
+        with open("output.txt", mode) as results_file:
             aurocMean = aurocIndividual.mean()
-        
+            aurocMean_weighted = self.weighted_mean(aurocIndividual_weighted,class_ids,ver)
+            recallMean = self.weighted_mean(recallIndividual,class_ids,ver)
+            precisionMean = self.weighted_mean(precisionIndividual,class_ids,ver)
+            F1Mean = self.weighted_mean(F1Individual,class_ids,ver)
+                
+
             results_file.write(f'{prefix} AUROC mean {aurocMean:0.2f}\n')
             for i, class_id in enumerate(class_ids):  
                 results_file.write(f'{self.val_dl.dataset.CLASSES[class_id]} {aurocIndividual[i]:0.2f}\n')
 
+            results_file.write(f'{prefix} Weighted AUROC mean {aurocMean_weighted:0.2f}\n')
+            for i, class_id in enumerate(class_ids):  
+                results_file.write(f'{self.val_dl.dataset.CLASSES[class_id]} {aurocIndividual_weighted[i]:0.2f}\n')
 
+            results_file.write(f'{prefix} Recall mean {recallMean:0.2f}\n')
+            for i, class_id in enumerate(class_ids):  
+                results_file.write(f'{self.val_dl.dataset.CLASSES[class_id]} {recallIndividual[i]:0.2f}\n')
+
+            results_file.write(f'{prefix} Precision mean {precisionMean:0.2f}\n')
+            for i, class_id in enumerate(class_ids):  
+                results_file.write(f'{self.val_dl.dataset.CLASSES[class_id]} {precisionIndividual[i]:0.2f}\n')
+
+            results_file.write(f'{prefix} F1 mean {F1Mean:0.2f}\n')
+            for i, class_id in enumerate(class_ids):  
+                results_file.write(f'{self.val_dl.dataset.CLASSES[class_id]} {F1Individual[i]:0.2f}\n')
+
+
+
+    def weighted_mean(self, ind_rate, class_ids,ver):
+        if(ver=='val'):
+            imdb=self.val_imdb
+        else:
+            imdb=self.test_imdb
+        ans=0
+        total_wt=0
+        for i, class_id in enumerate(class_ids):
+            total_wt+=imdb.get(class_id)
+            ans+=ind_rate[i]*imdb.get(class_id)
+        return ans/total_wt
 
 
     
@@ -392,15 +470,44 @@ class ChexnetTrainer(object):
 
 
 
-    def print_auroc_new(self, aurocIndividual, class_ids, prefix='val',ver='val'):
+    def print_auroc_new(self, aurocIndividual, aurocIndividual_weighted, recallIndividual, precisionIndividual, F1Individual, class_ids, prefix='val',ver='val'):
+        # print(aurocIndividual)
+        # print(recallIndividual)
+        # print(aurocIndividual_weighted)
         aurocMean = aurocIndividual.mean()
-    
+        aurocMean_weighted = self.weighted_mean(aurocIndividual_weighted,class_ids,ver)
+        recallMean = self.weighted_mean(recallIndividual,class_ids,ver)
+        precisionMean = self.weighted_mean(precisionIndividual,class_ids,ver)
+        F1Mean = self.weighted_mean(F1Individual,class_ids,ver)
+        
+
+
         print (f'{prefix} AUROC mean {aurocMean:0.2f}')
         for i, class_id in enumerate(class_ids):  
             print (f'{self.val_dl.dataset.CLASSES[class_id]} {aurocIndividual[i]:0.2f}')
+        # print('\n')
 
-        return aurocMean
-       
+        print (f'{prefix} Weighted AUROC mean {aurocMean_weighted:0.2f}')
+        for i, class_id in enumerate(class_ids):  
+            print (f'{self.val_dl.dataset.CLASSES[class_id]} {aurocIndividual_weighted[i]:0.2f}')
+        # print('\n')
+
+        print(f'{prefix} Recall mean {recallMean:0.2f}')
+        for i, class_id in enumerate(class_ids):  
+            print(f'{self.val_dl.dataset.CLASSES[class_id]} {recallIndividual[i]:0.2f}')
+        # print('\n')
+
+        print(f'{prefix} Precision mean {precisionMean:0.2f}')
+        for i, class_id in enumerate(class_ids):  
+            print(f'{self.val_dl.dataset.CLASSES[class_id]} {precisionIndividual[i]:0.2f}')
+        # print('\n')
+
+        print(f'{prefix} F1 mean {F1Mean:0.2f}')
+        for i, class_id in enumerate(class_ids):  
+            print(f'{self.val_dl.dataset.CLASSES[class_id]} {F1Individual[i]:0.2f}')
+        # print('\n')
+
+        return aurocMean, aurocMean_weighted, recallMean, precisionMean, F1Mean
         
 
 

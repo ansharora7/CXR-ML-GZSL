@@ -18,6 +18,7 @@ def parse_args():
     argParser.add_argument('--vision-backbone', default='densenet121', type=str, help='[densenet121, densenet169, densenet201]')
     argParser.add_argument('--resume-from', default=None, type=str, help='path to checkpoint to resume the training from')
     argParser.add_argument('--load-from', default=None, type=str, help='path to checkpoint to load the weights from')
+    argParser.add_argument('--vae-load-from', default=None, type=str, help='path to checkpoint to load the weights from')
 
     argParser.add_argument('--resize', default=256, type=int, help='number of epochs to train')
     argParser.add_argument('--crop', default=224, type=int, help='number of epochs to train')

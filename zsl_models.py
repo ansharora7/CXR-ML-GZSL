@@ -1,4 +1,3 @@
-
 import torch.nn as nn
 import torchvision
 import torch
@@ -7,6 +6,7 @@ import numpy as np
 from torch.nn.functional import kl_div, softmax, log_softmax
 from loss import RankingLoss, CosineLoss
 import torch.nn.functional as F
+from vae import *
 
 class ZSLNet(nn.Module):
 
@@ -53,21 +53,24 @@ class ZSLNet(nn.Module):
 
             self.textual_embeddings = torch.from_numpy(self.textual_embeddings).to(self.device)
 
-            self.fc_v = nn.Sequential(
-                nn.Linear(d_visual, 512),
-                nn.ReLU(),
-                nn.Linear(512, 256),
-                nn.ReLU(),
-                nn.Linear(256, 128),
-            )
+            # self.fc_v = nn.Sequential(
+            #     nn.Linear(d_visual, 512),
+            #     nn.ReLU(),
+            #     nn.Linear(512, 256),
+            #     nn.ReLU(),
+            #     nn.Linear(256, 128),
+            # )
                 
-            self.fc_t = nn.Sequential(
-                nn.Linear(d_textual, 512),
-                nn.ReLU(),
-                nn.Linear(512, 256),
-                nn.ReLU(),
-                nn.Linear(256, 128)
-            )
+            # self.fc_t = nn.Sequential(
+            #     nn.Linear(d_textual, 512),
+            #     nn.ReLU(),
+            #     nn.Linear(512, 256),
+            #     nn.ReLU(),
+            #     nn.Linear(256, 128)
+            # )
+        
+        ###ADDED CODE###
+        self.vae = VAE()
 
 
     def forward(self, x, labels=None, epoch=0, n_crops=0, bs=16):
@@ -81,7 +84,6 @@ class ZSLNet(nn.Module):
 
         visual_feats = self.vision_backbone(x)
         preds = self.classifier(visual_feats)
-
         if labels is not None:
             lossvalue_bce = self.bce_loss(preds, labels)
 
@@ -93,10 +95,19 @@ class ZSLNet(nn.Module):
         loss_allignment_cos = torch.zeros(1).to(self.device)
         loss_mapping_consistency = torch.zeros(1).to(self.device)
 
-
         visual_feats = self.vision_backbone(x)
-        visual_feats = self.fc_v(visual_feats)
-        text_feats = self.fc_t(self.textual_embeddings)
+
+        # ADDED CODE
+        # visual_feats = VAE().evaluate_VAE(visual_feats)
+        # text_feats = VAE().evaluate_VAE(self.textual_embeddings)
+        
+        loss_visual, visual_feats = self.vae.embeddings(visual_feats)
+        loss_textual, text_feats = self.vae.embeddings(self.textual_embeddings)
+        loss_vae = loss_visual+loss_textual
+        
+        # ADDED CODE
+        #visual_feats = self.fc_v(visual_feats)
+        #text_feats = self.fc_t(self.textual_embeddings)
         
 
 
@@ -125,7 +136,15 @@ class ZSLNet(nn.Module):
         loss_allignment_cos = (self.args.beta_map * loss_allignment_cos)
         loss_rank = (self.args.beta_rank * loss_rank)
         loss_mapping_consistency = (self.args.beta_con * loss_mapping_consistency)
-        losses = loss_rank + loss_mapping_consistency + 0.0*loss_allignment_cos
+        
+        ## ADDED CODE 
+        # losses = Variable(loss_rank + 0.0*loss_allignment_cos, requires_grad=True)
+        ## ADDED CODE
+
+        # losses = loss_rank + loss_mapping_consistency +0.0*loss_allignment_cos + 0.001*loss_vae
+        # losses = loss_rank + loss_mapping_consistency +0.0*loss_allignment_cos
+        losses = loss_rank + loss_mapping_consistency + loss_allignment_cos
+        # losses = loss_rank + loss_mapping_consistency + loss_allignment_cos + loss_vae
         return ranks, losses
     
     def sim_score(self, a, b):

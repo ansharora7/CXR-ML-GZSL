@@ -4,8 +4,7 @@ from PIL import Image
 import pandas as pd 
 
 import torch
-from torch.utils.data import Dataset
-# import 
+from torch.utils.data import Dataset 
 import glob
 
 
@@ -35,7 +34,7 @@ class NIHChestXray(Dataset):
                 'Pneumothorax', 'Consolidation', 'Cardiomegaly', 'Pleural_Thickening', 'Hernia']
 
         self._class_ids = {v: i for i, v in enumerate(self.CLASSES) if v != 'No Finding'}
-
+        #print(self._class_ids)
         self.seen_class_ids = [self._class_ids[label] for label in self.seen_classes]
         self.unseen_class_ids = [self._class_ids[label] for label in self.unseen_classes]
         
@@ -74,6 +73,10 @@ class NIHChestXray(Dataset):
         # remove No Finding
 
         # Construct the image db
+
+        ###ADDED###
+        self.dict_num_images = {0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0,8:0,9:0,10:0,11:0,12:0,13:0}
+        ###ADDED###
         self._imdb = []
         self.class_ids_loaded = []
         for index in range(len(split_index)):
@@ -82,12 +85,19 @@ class NIHChestXray(Dataset):
             if self._should_load_image(labels[index]) is False:
                 continue
             class_ids = [self._class_ids[label] for label in labels[index]]
+            
+            ###ADDED###
+            for i in class_ids:
+                self.dict_num_images[i] +=1
+            ###ADDED###
             self.class_ids_loaded +=class_ids
             self._imdb.append({
                 'im_path': self.names_to_path[image_index[index]],
                 'labels': class_ids,
             })
             max_labels = max(max_labels, len(class_ids))
+        
+        # print(images)
         
         # import pdb; pdb.set_trace()
         self.class_ids_loaded = np.unique(np.array(self.class_ids_loaded))

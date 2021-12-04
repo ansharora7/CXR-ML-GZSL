@@ -1,7 +1,7 @@
-CUDA_VISIBLE_DEVICES=0 python train.py \
+CUDA_VISIBLE_DEVICES=3  python train.py \
 --pretrained \
 --vision-backbone densenet121 \
---save-dir checkpoints \
+--save-dir checkpoints_15 \
 --epochs 40 \
 --lr 0.0001 \
 --beta-rank 1 \
@@ -9,4 +9,4 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 --beta-con 0.01 \
 --neg-penalty 0.20 \
 --textual-embeddings embeddings/nih_chest_xray_biobert.npy \
---data-root /data/shamoutlab/nih_chest_xrays
+--data-root data/nih_chest_xrays
